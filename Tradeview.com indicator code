@@ -1,0 +1,256 @@
+
+ //@version=5
+indicator("s3c3rtMental AI V5 - Crypto Edition", shorttitle="s3c3rtMental V5", overlay=true, max_labels_count=100, max_lines_count=100)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SETTINGS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+balance = input.float(500, "Practice Balance ($)", minval=1)
+riskPercent = input.float(2, "Hypothetical Risk (%)", minval=0.1, maxval=100)
+profitTarget = input.float(1000, "Hypothetical Profit Goal ($)", minval=1000, maxval=20000, step=1000)
+
+fastLength = input.int(21, "Fast EMA")
+slowLength = input.int(50, "Slow EMA")
+atrLength = input.int(14, "ATR Length")
+stopMultiplier = input.float(1.5, "Stop ATR Multiplier")
+adxMinimum = input.float(18, "Minimum ADX")
+
+showDashboard = input.bool(true, "Show Dashboard")
+showLevels = input.bool(true, "Show Entry / Stop / Targets")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INDICATORS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+emaFast = ta.ema(close, fastLength)
+emaSlow = ta.ema(close, slowLength)
+
+[stLine, stDirection] = ta.supertrend(3.0, 10)
+rsiValue = ta.rsi(close, 14)
+[macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+[plusDI, minusDI, adxValue] = ta.dmi(14, 14)
+
+atrValue = ta.atr(atrLength)
+recentLow = ta.lowest(low, 10)
+recentHigh = ta.highest(high, 10)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TREND ANALYSIS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+bullTrend = close > emaSlow and emaFast > emaSlow and stDirection < 0
+bearTrend = close < emaSlow and emaFast < emaSlow and stDirection > 0
+
+bullScore = (bullTrend ? 1 : 0) + (rsiValue > 50 ? 1 : 0) + (macdLine > macdSignal ? 1 : 0) + (plusDI > minusDI ? 1 : 0) + (adxValue > adxMinimum ? 1 : 0)
+
+bearScore = (bearTrend ? 1 : 0) + (rsiValue < 50 ? 1 : 0) + (macdLine < macdSignal ? 1 : 0) + (minusDI > plusDI ? 1 : 0) + (adxValue > adxMinimum ? 1 : 0)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PRACTICE SIGNALS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+bullSetup = bullTrend and bullScore >= 4
+bearSetup = bearTrend and bearScore >= 4
+
+bullFlip = bullSetup and not bullSetup[1] and barstate.isconfirmed
+bearFlip = bearSetup and not bearSetup[1] and barstate.isconfirmed
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CHART LINES
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plot(emaFast, "Fast EMA", color=color.aqua, linewidth=2)
+plot(emaSlow, "Slow EMA", color=color.orange, linewidth=2)
+plot(stLine, "SuperTrend", color=stDirection < 0 ? color.lime : color.red, linewidth=2)
+
+plotshape(bullFlip, title="BUY Practice", text="BUY", style=shape.labelup, location=location.belowbar, color=color.lime, textcolor=color.black)
+plotshape(bearFlip, title="SELL Practice", text="SELL", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PRACTICE POSITION VARIABLES
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var float entryPrice = na
+var float stopPrice = na
+var float target1 = na
+var float target2 = na
+var float target3 = na
+var float requiredUnits = na
+var float estimatedLoss = na
+
+var bool active = false
+var bool bullish = false
+
+var bool tp1Hit = false
+var bool tp2Hit = false
+var bool tp3Hit = false
+var bool stopHit = false
+
+var string outcome = "WAITING FOR SETUP"
+
+var line entryLine = na
+var line stopLine = na
+var line tp1Line = na
+var line tp2Line = na
+var line tp3Line = na
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// NEW PRACTICE SETUP
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+if bullFlip or bearFlip
+    bullish := bullFlip
+    active := true
+    entryPrice := close
+
+    atrDistance = atrValue * stopMultiplier
+
+    longStop = math.min(entryPrice - atrDistance, recentLow - atrValue * 0.1)
+    shortStop = math.max(entryPrice + atrDistance, recentHigh + atrValue * 0.1)
+
+    stopPrice := bullish ? longStop : shortStop
+
+    stopDistance = math.abs(entryPrice - stopPrice)
+
+    target1 := bullish ? entryPrice + stopDistance : entryPrice - stopDistance
+    target2 := bullish ? entryPrice + stopDistance * 2 : entryPrice - stopDistance * 2
+    target3 := bullish ? entryPrice + stopDistance * 3 : entryPrice - stopDistance * 3
+
+    requiredUnits := stopDistance > 0 and syminfo.pointvalue > 0 ? profitTarget / (math.abs(target3 - entryPrice) * syminfo.pointvalue) : na
+    estimatedLoss := not na(requiredUnits) ? requiredUnits * stopDistance * syminfo.pointvalue : na
+
+    tp1Hit := false
+    tp2Hit := false
+    tp3Hit := false
+    stopHit := false
+
+    outcome := "SETUP ACTIVE"
+
+    if not na(entryLine)
+        line.delete(entryLine)
+    if not na(stopLine)
+        line.delete(stopLine)
+    if not na(tp1Line)
+        line.delete(tp1Line)
+    if not na(tp2Line)
+        line.delete(tp2Line)
+    if not na(tp3Line)
+        line.delete(tp3Line)
+
+    if showLevels
+        entryLine := line.new(bar_index, entryPrice, bar_index + 1, entryPrice, extend=extend.right, color=color.blue, width=2)
+        stopLine := line.new(bar_index, stopPrice, bar_index + 1, stopPrice, extend=extend.right, color=color.red, width=2)
+        tp1Line := line.new(bar_index, target1, bar_index + 1, target1, extend=extend.right, color=color.lime, style=line.style_dashed)
+        tp2Line := line.new(bar_index, target2, bar_index + 1, target2, extend=extend.right, color=color.lime, style=line.style_dashed)
+        tp3Line := line.new(bar_index, target3, bar_index + 1, target3, extend=extend.right, color=color.green, width=2)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TARGET AND STOP TRACKING
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+if active
+    if bullish
+        tp1Hit := tp1Hit or high >= target1
+        tp2Hit := tp2Hit or high >= target2
+        tp3Hit := tp3Hit or high >= target3
+        stopHit := stopHit or low <= stopPrice
+    else
+        tp1Hit := tp1Hit or low <= target1
+        tp2Hit := tp2Hit or low <= target2
+        tp3Hit := tp3Hit or low <= target3
+        stopHit := stopHit or high >= stopPrice
+
+    if stopHit and (tp1Hit or tp2Hit or tp3Hit)
+        outcome := "SAME BAR - UNCLEAR"
+        active := false
+    else if stopHit
+        outcome := "STOP TOUCHED"
+        active := false
+    else if tp3Hit
+        outcome := "TARGET 3 TOUCHED"
+        active := false
+    else if tp2Hit
+        outcome := "TARGET 2 TOUCHED"
+    else if tp1Hit
+        outcome := "TARGET 1 TOUCHED"
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DASHBOARD
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+riskBudget = balance * riskPercent / 100
+riskFits = not na(estimatedLoss) and estimatedLoss <= riskBudget
+
+riskText = na(estimatedLoss) ? "WAITING" : riskFits ? "WITHIN LIMIT" : "EXCEEDS LIMIT"
+
+trendText = bullTrend ? "BULLISH" : bearTrend ? "BEARISH" : "NEUTRAL"
+signalText = bullSetup ? "BUY SETUP" : bearSetup ? "SELL SETUP" : "WAIT"
+
+var table panel = table.new(position.top_right, 2, 17, border_width=1)
+
+if barstate.islast
+    if showDashboard
+        table.cell(panel, 0, 0, "S3C3RTMENTAL AI", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 0, "V5 CRYPTO", bgcolor=color.black, text_color=color.aqua)
+
+        table.cell(panel, 0, 1, "SYMBOL", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 1, syminfo.ticker, bgcolor=color.black, text_color=color.aqua)
+
+        table.cell(panel, 0, 2, "LIVE PRICE", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 2, str.tostring(close, format.mintick), bgcolor=color.black, text_color=color.white)
+
+        table.cell(panel, 0, 3, "TREND", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 3, trendText, bgcolor=color.black, text_color=bullTrend ? color.lime : bearTrend ? color.red : color.gray)
+
+        table.cell(panel, 0, 4, "SIGNAL", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 4, signalText, bgcolor=color.black, text_color=bullSetup ? color.lime : bearSetup ? color.red : color.gray)
+
+        table.cell(panel, 0, 5, "BULL SCORE", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 5, str.tostring(bullScore) + "/5", bgcolor=color.black, text_color=color.lime)
+
+        table.cell(panel, 0, 6, "BEAR SCORE", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 6, str.tostring(bearScore) + "/5", bgcolor=color.black, text_color=color.red)
+
+        table.cell(panel, 0, 7, "RSI / ADX", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 7, str.tostring(rsiValue, "#.0") + " / " + str.tostring(adxValue, "#.0"), bgcolor=color.black, text_color=color.white)
+
+        table.cell(panel, 0, 8, "PRACTICE BALANCE", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 8, "$" + str.tostring(balance, "#.00"), bgcolor=color.black, text_color=color.aqua)
+
+        table.cell(panel, 0, 9, "RISK BUDGET", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 9, "$" + str.tostring(riskBudget, "#.00"), bgcolor=color.black, text_color=color.yellow)
+
+        table.cell(panel, 0, 10, "ENTRY", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 10, na(entryPrice) ? "WAITING" : str.tostring(entryPrice, format.mintick), bgcolor=color.black, text_color=color.aqua)
+
+        table.cell(panel, 0, 11, "STOP", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 11, na(stopPrice) ? "WAITING" : str.tostring(stopPrice, format.mintick), bgcolor=color.black, text_color=color.red)
+
+        table.cell(panel, 0, 12, "TARGET 1 / 2", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 12, na(target1) ? "WAITING" : str.tostring(target1, format.mintick) + " / " + str.tostring(target2, format.mintick), bgcolor=color.black, text_color=color.lime)
+
+        table.cell(panel, 0, 13, "TARGET 3", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 13, na(target3) ? "WAITING" : str.tostring(target3, format.mintick), bgcolor=color.black, text_color=color.lime)
+
+        table.cell(panel, 0, 14, "PROFIT GOAL", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 14, "$" + str.tostring(profitTarget, "#"), bgcolor=color.black, text_color=color.lime)
+
+        table.cell(panel, 0, 15, "EST. STOP LOSS", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 15, na(estimatedLoss) ? "WAITING" : "$" + str.tostring(estimatedLoss, "#.00"), bgcolor=color.black, text_color=color.red)
+
+        table.cell(panel, 0, 16, "RISK CHECK", bgcolor=color.black, text_color=color.white)
+        table.cell(panel, 1, 16, riskText, bgcolor=color.black, text_color=riskFits ? color.lime : color.red)
+    else
+        table.clear(panel, 0, 0, 1, 16)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ALERTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+alertcondition(bullFlip, title="Bullish Practice Setup", message="Bullish practice setup confirmed.")
+alertcondition(bearFlip, title="Bearish Practice Setup", message="Bearish practice setup confirmed.")
+alertcondition(tp1Hit and not tp1Hit[1], title="Target 1 Touched", message="Practice target 1 touched.")
+alertcondition(tp2Hit and not tp2Hit[1], title="Target 2 Touched", message="Practice target 2 touched.")
+alertcondition(tp3Hit and not tp3Hit[1], title="Target 3 Touched", message="Practice target 3 touched.")
+alertcondition(stopHit and not stopHit[1], title="Stop Touched", message="Practice stop touched.")
